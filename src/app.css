@@ -1,0 +1,152 @@
+/* 精密墨消しアプリの見た目（色合いは編集アプリに合わせる） */
+:root {
+  --font: system-ui, 'BIZ UDPGothic', 'Yu Gothic UI', 'Meiryo', sans-serif;
+  --bg: #eef0f3;
+  --surface: #ffffff;
+  --surface-2: #f6f7f9;
+  --border: #d9dde3;
+  --text: #1c2430;
+  --muted: #5f6b7a;
+  --accent: #2563eb;
+  --accent-weak: #dbe6fd;
+  --accent-text: #ffffff;
+  --danger: #c62828;
+  --danger-weak: #fde4e4;
+  --ok: #1b7f3b;
+  --ok-weak: #dcf3e3;
+  --page-shadow: 0 1px 3px rgb(0 0 0 / 0.18), 0 4px 12px rgb(0 0 0 / 0.08);
+  --radius: 8px;
+  --radius-sm: 6px;
+  --header-h: 52px;
+  --footer-h: 30px;
+  --sidebar-w: 150px;
+  --panel-w: 290px;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15181d;
+    --surface: #1e2229;
+    --surface-2: #252a32;
+    --border: #353c47;
+    --text: #e6e9ee;
+    --muted: #9aa4b2;
+    --accent: #5b8def;
+    --accent-weak: #263552;
+    --danger: #ef6b6b;
+    --danger-weak: #3d2224;
+    --ok: #4fc777;
+    --ok-weak: #1f3a28;
+    --page-shadow: 0 1px 3px rgb(0 0 0 / 0.5), 0 4px 12px rgb(0 0 0 / 0.3);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+}
+
+#app {
+  height: 100%;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+button.danger {
+  color: var(--danger);
+}
+
+button.active {
+  background: var(--accent-weak);
+  border-color: var(--accent);
+}
+
+input[type='text'],
+input[type='password'],
+input[type='search'] {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+}
+
+a {
+  color: var(--accent);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--page-shadow);
+  padding: 18px 20px;
+  min-width: 340px;
+  max-width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+}
+
+.dialog h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.dialog .actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
