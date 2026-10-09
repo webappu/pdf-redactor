@@ -3,6 +3,7 @@
   import { onDestroy } from 'svelte';
   import type { RenderScheduler } from '../lib/renderer';
   import type { PageSize } from '../lib/types';
+  import { t } from '../i18n.svelte';
   import { visible } from '../lib/visible';
 
   interface Props {
@@ -62,7 +63,7 @@
   use:visible={{ onChange: (v) => (isVisible = v), root, margin: '200px' }}
 >
   <canvas bind:this={canvas} style:width="{WIDTH}px" style:height="{size.height * scale}px"></canvas>
-  <span class="label">{index + 1}{#if count > 0}<span class="count" title="墨消しの範囲の数">{count}</span>{/if}</span>
+  <span class="label">{index + 1}{#if count > 0}<span class="count" title={t('墨消しの範囲の数')}>{count}</span>{/if}</span>
 </button>
 
 <style>

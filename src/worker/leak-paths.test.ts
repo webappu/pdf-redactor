@@ -148,7 +148,7 @@ describe('そのほかの漏洩の経路', () => {
       doc.insertPage(-1, doc.addPage([0, 0, 595, 842], 0, res, 'q 595 0 0 842 0 0 cm /Scan Do Q 3 Tr BT /F1 14 Tf 250 700 Td (SCANSECRET) Tj ET BT /F1 14 Tf 72 600 Td (KEEP1) Tj ET'));
     });
     const r = run(bytes);
-    expect(r.report.marks[0].pixelsDetail).toBe('合格');
+    expect(r.report.marks[0].pixelsDetail).toEqual([{ key: '合格' }]);
     expect(r.report.ok).toBe(true);
     expect(raw(r.bytes)).not.toContain('SCANSECRET');
     expect(raw(r.bytes)).toContain('KEEP1');

@@ -4,6 +4,7 @@
   import type { RenderScheduler } from '../lib/renderer';
   import type { Mark, PageSize, Rect } from '../lib/types';
   import { normRect } from '../lib/geom';
+  import { t } from '../i18n.svelte';
   import { visible } from '../lib/visible';
 
   interface Props {
@@ -173,7 +174,7 @@
 >
   <canvas bind:this={canvas} style:width="{size.width * zoom}px" style:height="{size.height * zoom}px"></canvas>
   {#if loading}
-    <div class="loading muted">{index + 1} ページ</div>
+    <div class="loading muted">{t('{n} ページ', { n: index + 1 })}</div>
   {/if}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div

@@ -2,10 +2,12 @@
   // 精密墨消しアプリの画面。PDF を開き、墨消しの範囲を指定して適用し、事後検査の結果とともに保存・本体へ戻す
   import { onMount, tick } from 'svelte';
   import { LICENSE_NAME, SOURCE_URL } from './config';
+  import { lang, setLang, t, tm } from './i18n.svelte';
   import { PdfWorker } from './lib/client';
   import { readHandoffId, receiveHandoff, returnName, returnToEditor } from './lib/handoff';
   import { rectsIntersect } from './lib/geom';
   import { RenderScheduler } from './lib/renderer';
+  import type { Msg } from './lib/msg';
   import type { ApplyChoice, ApplyResult, DocInfo, Mark, MarkMode, RGB, Rect } from './lib/types';
   import PageSlot from './ui/PageSlot.svelte';
   import Thumb from './ui/Thumb.svelte';
@@ -18,8 +20,10 @@
 
   type Phase = 'empty' | 'opening' | 'password' | 'edit' | 'applying' | 'result';
   let phase = $state<Phase>('empty');
-  let status = $state('');
-  let error = $state('');
+  // 画面に出す文は、文を作る関数で持つ（言語を切り替えたとき、出ている文も今の言語で出し直すため）
+  type Text = (() => string) | null;
+  let status = $state<Text>(null);
+  let error = $state<Text>(null);
   let fileName = $state('');
   let info = $state<DocInfo | null>(null);
   let epoch = $state(0);
@@ -36,11 +40,11 @@
   let dragOver = $state(false);
 
   let passwordInput = $state('');
-  let passwordError = $state('');
+  let passwordError = $state<Text>(null);
 
   let searchText = $state('');
   let ignoreCase = $state(true);
-  let searchMsg = $state('');
+  let searchMsg = $state<Text>(null);
 
   let confirmOpen = $state(false);
   // 文書の情報・しおり・添付・スクリプトも消す（推奨。既定で入れる）
@@ -93,12 +97,14 @@
   }
 
   function fail(e: unknown) {
-    error = e instanceof Error ? e.message : String(e);
+    const message = e instanceof Error ? e.message : String(e);
+    // ワーカーの誤りは日本語の文言（鍵）で届く。辞書にあれば今の言語にする（MuPDF の英語の誤りなどはそのまま）
+    error = () => t(message);
   }
 
   async function openFile(blob: Blob, name: string) {
-    error = '';
-    status = '開いています…';
+    error = null;
+    status = () => t('開いています…');
     phase = 'opening';
     fileName = name;
     marks = [];
@@ -113,15 +119,15 @@
       const r = await worker.open(blob);
       if (r.needsPassword) {
         phase = 'password';
-        status = '';
+        status = null;
         passwordInput = '';
-        passwordError = '';
+        passwordError = null;
         return;
       }
       await afterOpen();
     } catch (e) {
       phase = 'empty';
-      status = '';
+      status = null;
       fail(e);
     }
   }
@@ -131,7 +137,7 @@
     try {
       const r = await worker.auth(passwordInput);
       if (!r.ok) {
-        passwordError = 'パスワードが違います';
+        passwordError = () => t('パスワードが違います');
         return;
       }
       passwordInput = '';
@@ -154,7 +160,8 @@
     marks = r.marks;
     epoch++;
     phase = 'edit';
-    status = r.marks.length ? `墨消しの候補を ${r.marks.length} 件読み込みました` : '';
+    const candidates = r.marks.length;
+    status = candidates ? () => t('墨消しの候補を {n} 件読み込みました', { n: candidates }) : null;
     await tick();
     fitWidth();
   }
@@ -168,7 +175,7 @@
     handoffId = null;
     if (clearStatus) {
       phase = 'empty';
-      status = '';
+      status = null;
     }
   }
 
@@ -257,9 +264,9 @@
   }
 
   function onKey(ev: KeyboardEvent) {
-    const t = ev.target as HTMLElement;
+    const el = ev.target as HTMLElement;
     // 文字を入力する欄では、Delete・Backspace を文字の削除に使う
-    const typing = t instanceof HTMLInputElement ? ['text', 'search', 'password', 'number', 'email', 'url', 'tel'].includes(t.type) : t?.tagName === 'TEXTAREA' || t?.isContentEditable;
+    const typing = el instanceof HTMLInputElement ? ['text', 'search', 'password', 'number', 'email', 'url', 'tel'].includes(el.type) : el?.tagName === 'TEXTAREA' || el?.isContentEditable;
     if (typing) return;
     if ((ev.key === 'Delete' || ev.key === 'Backspace') && selectedId && editable) {
       deleteMark(selectedId);
@@ -286,8 +293,14 @@
           pages.add(h.page);
         }
       }
-      searchMsg = r.hits.length === 0 ? '見つかりませんでした' : `${r.hits.length} か所が見つかり、${added} 件の範囲を追加しました（${pages.size} ページ）`;
-      if (r.truncatedPages.length) searchMsg += `。${r.truncatedPages.map((p) => p + 1).join('・')} ページは件数が多く、すべては拾えていない可能性があります`;
+      const hits = r.hits.length;
+      const pageCount = pages.size;
+      const truncated = r.truncatedPages.map((p) => p + 1);
+      searchMsg = () => {
+        let m = hits === 0 ? t('見つかりませんでした') : t('{hits} か所が見つかり、{added} 件の範囲を追加しました（{pages} ページ）', { hits, added, pages: pageCount });
+        if (truncated.length) m += t('。{list} ページは件数が多く、すべては拾えていない可能性があります', { list: truncated.join(t('・')), n: truncated.length });
+        return m;
+      };
     } catch (e) {
       fail(e);
     }
@@ -302,9 +315,9 @@
   async function runApply() {
     confirmOpen = false;
     choiceDialog = null;
-    error = '';
+    error = null;
     phase = 'applying';
-    status = '墨消しを適用しています…';
+    status = () => t('墨消しを適用しています…');
     try {
       const r = await worker.apply($state.snapshot(marks) as Mark[], $state.snapshot(choice) as ApplyChoice, { stripDocument });
       result = r;
@@ -313,7 +326,7 @@
       epoch++;
       phase = 'result';
       returnState = 'idle';
-      status = r.report.ok ? '適用しました。事後検査はすべて合格です' : '適用しましたが、事後検査に合格しない範囲があります';
+      status = r.report.ok ? () => t('適用しました。事後検査はすべて合格です') : () => t('適用しましたが、事後検査に合格しない範囲があります');
       const pixelPages = r.report.pixelFailedPages;
       const otherPages = r.report.otherFailedPages.filter((p) => !pixelPages.includes(p));
       if (pixelPages.length || otherPages.length) {
@@ -325,7 +338,7 @@
       fitWidth();
     } catch (e) {
       phase = 'edit';
-      status = '';
+      status = null;
       fail(e);
     }
   }
@@ -356,7 +369,7 @@
       result = null;
       choiceDialog = null;
       choice = { lineArtTouchedPages: [], rasterPages: [] };
-      status = '';
+      status = null;
     } catch (e) {
       fail(e);
     }
@@ -373,7 +386,7 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = returnName(fileName);
+    a.download = returnName(fileName, t('文書'), t('_墨消し'));
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -384,7 +397,7 @@
     const blob = outputBlob();
     if (!blob || !handoffId || !result?.report.ok) return;
     returnState = 'sending';
-    const ok = await returnToEditor(handoffId, returnName(fileName), blob);
+    const ok = await returnToEditor(handoffId, returnName(fileName, t('文書'), t('_墨消し')), blob);
     returnState = ok ? 'done' : 'closed';
   }
 
@@ -397,10 +410,15 @@
     if (!result) return '';
     const n = result.report.marks.length;
     const bad = result.report.marks.filter((m) => !m.ok).length;
-    return bad === 0 ? `事後検査: ${n} 件すべて合格` : `事後検査: ${n} 件中 ${bad} 件が不合格`;
+    return bad === 0 ? t('事後検査: {n} 件すべて合格', { n }) : t('事後検査: {n} 件中 {bad} 件が不合格', { n, bad });
   });
 
   const markIndex = $derived(new Map(marks.map((m, i) => [m.id, i + 1])));
+
+  // ①の説明（ワーカーから鍵と値で届く）を、今の言語の文にする
+  function pixelsText(detail: Msg[]): string {
+    return detail.map(tm).join(t('、'));
+  }
 
   onMount(() => {
     const id = readHandoffId(location.hash);
@@ -408,7 +426,7 @@
     handoffId = id;
     // 再読み込みで待ち直さないよう、URL から id を外す
     history.replaceState(null, '', location.pathname + location.search);
-    status = '編集アプリから受け取っています…';
+    status = () => t('編集アプリから受け取っています…');
     phase = 'opening';
     handoffWaiting = true;
     const done = () => {
@@ -421,21 +439,22 @@
         openFile(blob, name);
       },
       onPreparing: () => {
-        status = '編集アプリが PDF を作っています…';
+        status = () => t('編集アプリが PDF を作っています…');
       },
       onFailed: (message) => {
         done();
         phase = 'empty';
-        status = '';
+        status = null;
         handoffId = null;
-        error = `編集アプリから PDF を受け取れませんでした: ${message}`;
+        // message は本体が送った文（本体の言語）か、受け取り側の既定の文（日本語の鍵）
+        error = () => t('編集アプリから PDF を受け取れませんでした: {message}', { message: t(message) });
       },
       onTimeout: () => {
         done();
         phase = 'empty';
-        status = '';
+        status = null;
         handoffId = null;
-        error = '編集アプリから PDF を受け取れませんでした。編集アプリの画面からもう一度開くか、ファイルを開いてください';
+        error = () => t('編集アプリから PDF を受け取れませんでした。編集アプリの画面からもう一度開くか、ファイルを開いてください');
       },
     });
     return () => stopHandoff?.();
@@ -465,51 +484,53 @@
   ondrop={onDrop}
 >
   <header>
-    <h1>精密墨消し</h1>
-    <button data-testid="open-button" onclick={() => fileInput?.click()} disabled={phase === 'applying'}>PDF を開く</button>
+    <h1>{t('精密墨消し')}</h1>
+    <button data-testid="open-button" onclick={() => fileInput?.click()} disabled={phase === 'applying'}>{t('PDF を開く')}</button>
     <input bind:this={fileInput} data-testid="open-input" type="file" accept="application/pdf,.pdf" hidden onchange={onFileChange} />
     {#if fileName}<span class="filename" data-testid="file-name" title={fileName}>{fileName}</span>{/if}
     {#if info}
-      <div class="group" aria-label="拡大・縮小">
-        <button onclick={() => setZoom(zoom / 1.25)} title="縮小">−</button>
+      <div class="group" aria-label={t('拡大・縮小')}>
+        <button onclick={() => setZoom(zoom / 1.25)} title={t('縮小')}>−</button>
         <span class="zoom" data-testid="zoom">{Math.round(zoom * 100)}%</span>
-        <button onclick={() => setZoom(zoom * 1.25)} title="拡大">＋</button>
-        <button onclick={fitWidth}>幅に合わせる</button>
+        <button onclick={() => setZoom(zoom * 1.25)} title={t('拡大')}>＋</button>
+        <button onclick={fitWidth}>{t('幅に合わせる')}</button>
       </div>
     {/if}
     {#if phase === 'edit'}
-      <div class="group" aria-label="道具">
-        <button class:active={tool === 'rect'} data-testid="tool-rect" onclick={() => (tool = 'rect')}>矩形を描く</button>
-        <button class:active={tool === 'select'} data-testid="tool-select" onclick={() => (tool = 'select')}>選ぶ</button>
+      <div class="group" aria-label={t('道具')}>
+        <button class:active={tool === 'rect'} data-testid="tool-rect" onclick={() => (tool = 'rect')}>{t('矩形を描く')}</button>
+        <button class:active={tool === 'select'} data-testid="tool-select" onclick={() => (tool = 'select')}>{t('選ぶ')}</button>
       </div>
-      <div class="group" aria-label="新しい範囲の方式">
-        <select bind:value={newMode} data-testid="new-mode" title="新しい範囲の方式">
-          <option value="fill">塗りつぶし</option>
-          <option value="blur">ぼかし</option>
+      <div class="group" aria-label={t('新しい範囲の方式')}>
+        <select bind:value={newMode} data-testid="new-mode" title={t('新しい範囲の方式')}>
+          <option value="fill">{t('塗りつぶし')}</option>
+          <option value="blur">{t('ぼかし')}</option>
         </select>
         {#if newMode === 'fill'}
-          <input type="color" bind:value={newColor} title="塗りの色" data-testid="new-color" />
+          <input type="color" bind:value={newColor} title={t('塗りの色')} data-testid="new-color" />
         {/if}
       </div>
       <span class="spacer"></span>
-      <button class="primary" data-testid="apply-button" disabled={!marks.length} onclick={askApply}>墨消しを適用（{marks.length}）</button>
+      <button class="primary" data-testid="apply-button" disabled={!marks.length} onclick={askApply}>{t('墨消しを適用（{n}）', { n: marks.length })}</button>
     {:else if phase === 'result'}
       <span class="spacer"></span>
-      <button data-testid="back-button" onclick={backToEdit}>指定に戻る</button>
-      <button class="primary" data-testid="save-button" disabled={!result?.report.ok} onclick={save}>保存</button>
+      <button data-testid="back-button" onclick={backToEdit}>{t('指定に戻る')}</button>
+      <button class="primary" data-testid="save-button" disabled={!result?.report.ok} onclick={save}>{t('保存')}</button>
       {#if handoffId}
-        <button class="primary" data-testid="return-button" disabled={!result?.report.ok || returnState === 'sending' || returnState === 'done'} onclick={sendBack}>編集アプリに戻す</button>
+        <button class="primary" data-testid="return-button" disabled={!result?.report.ok || returnState === 'sending' || returnState === 'done'} onclick={sendBack}>{t('編集アプリに戻す')}</button>
       {/if}
     {:else}
       <span class="spacer"></span>
     {/if}
+    <!-- 言語の切り替え（今と違う方の言語の名前を、その言語で出す。本人が選んだ言語は保存する） -->
+    <button data-testid="lang-switch" lang={lang.current === 'ja' ? 'en' : 'ja'} onclick={() => setLang(lang.current === 'ja' ? 'en' : 'ja')}>{lang.current === 'ja' ? 'English' : '日本語'}</button>
   </header>
 
   {#if status || error}
     <div class="statusbar">
-      {#if status}<span data-testid="status">{status}</span>{/if}
-      {#if handoffWaiting}<button class="link-btn" data-testid="handoff-cancel" onclick={() => cancelHandoff(true)}>引き継ぎをやめる</button>{/if}
-      {#if error}<span class="error" data-testid="error">{error}</span>{/if}
+      {#if status}<span data-testid="status">{status()}</span>{/if}
+      {#if handoffWaiting}<button class="link-btn" data-testid="handoff-cancel" onclick={() => cancelHandoff(true)}>{t('引き継ぎをやめる')}</button>{/if}
+      {#if error}<span class="error" data-testid="error">{error()}</span>{/if}
     </div>
   {/if}
 
@@ -544,75 +565,75 @@
       <aside class="panel">
         {#if view === 'source'}
           <section>
-            <h2>文字列で探してマーク</h2>
+            <h2>{t('文字列で探してマーク')}</h2>
             <form onsubmit={runSearch} class="search">
-              <input type="search" bind:value={searchText} placeholder="消したい文字列" data-testid="search-input" disabled={!editable} />
-              <button type="submit" data-testid="search-button" disabled={!editable || !searchText.trim()}>探す</button>
+              <input type="search" bind:value={searchText} placeholder={t('消したい文字列')} data-testid="search-input" disabled={!editable} />
+              <button type="submit" data-testid="search-button" disabled={!editable || !searchText.trim()}>{t('探す')}</button>
             </form>
-            <label class="check"><input type="checkbox" bind:checked={ignoreCase} data-testid="search-ignore-case" /> 大文字と小文字を区別しない</label>
-            {#if searchMsg}<p class="small" data-testid="search-message">{searchMsg}</p>{/if}
+            <label class="check"><input type="checkbox" bind:checked={ignoreCase} data-testid="search-ignore-case" /> {t('大文字と小文字を区別しない')}</label>
+            {#if searchMsg}<p class="small" data-testid="search-message">{searchMsg()}</p>{/if}
           </section>
           {#if selected}
             <section data-testid="selected-panel">
-              <h2>選んだ範囲</h2>
+              <h2>{t('選んだ範囲')}</h2>
               <div class="row">
-                <label><input type="radio" name="mode" checked={selected.mode === 'fill'} onchange={() => setSelectedMode('fill')} /> 塗りつぶし</label>
-                <label><input type="radio" name="mode" checked={selected.mode === 'blur'} onchange={() => setSelectedMode('blur')} data-testid="selected-blur" /> ぼかし</label>
+                <label><input type="radio" name="mode" checked={selected.mode === 'fill'} onchange={() => setSelectedMode('fill')} /> {t('塗りつぶし')}</label>
+                <label><input type="radio" name="mode" checked={selected.mode === 'blur'} onchange={() => setSelectedMode('blur')} data-testid="selected-blur" /> {t('ぼかし')}</label>
               </div>
               {#if selected.mode === 'fill'}
-                <label class="row">塗りの色 <input type="color" value={rgbToHex(selected.color)} oninput={(e) => setSelectedColor((e.target as HTMLInputElement).value)} /></label>
+                <label class="row">{t('塗りの色')} <input type="color" value={rgbToHex(selected.color)} oninput={(e) => setSelectedColor((e.target as HTMLInputElement).value)} /></label>
               {/if}
-              <button class="danger" onclick={() => deleteMark(selected.id)} data-testid="delete-selected">この範囲を消す</button>
+              <button class="danger" onclick={() => deleteMark(selected.id)} data-testid="delete-selected">{t('この範囲を消す')}</button>
             </section>
           {/if}
           <section>
-            <h2>墨消しの範囲 <span class="muted" data-testid="mark-count">{marks.length} 件</span></h2>
+            <h2>{t('墨消しの範囲')} <span class="muted" data-testid="mark-count">{t('{n} 件', { n: marks.length })}</span></h2>
             {#if marks.length}
-              <p class="small muted">塗りつぶし {counts.fill} 件・ぼかし {counts.blur} 件・{markPages} ページ{#if overlaps}・重なり {overlaps} か所{/if}</p>
+              <p class="small muted">{t('塗りつぶし {fill} 件・ぼかし {blur} 件・{pages} ページ', { fill: counts.fill, blur: counts.blur, pages: markPages })}{#if overlaps}{t('・重なり {n} か所', { n: overlaps })}{/if}</p>
               <ul class="marklist">
                 {#each marks as m, i (m.id)}
                   <li class:sel={m.id === selectedId}>
                     <button class="link" onclick={() => selectFromList(m)}>
-                      {i + 1}. {m.page + 1} ページ・{m.source === 'draw' ? '描いた範囲' : m.source === 'search' ? '検索' : '引き継いだ候補'}・{m.mode === 'fill' ? '塗り' : 'ぼかし'}
+                      {i + 1}. {t('{p} ページ・{source}・{mode}', { p: m.page + 1, source: m.source === 'draw' ? t('描いた範囲') : m.source === 'search' ? t('検索') : t('引き継いだ候補'), mode: m.mode === 'fill' ? t('塗り') : t('ぼかし') })}
                     </button>
-                    <button class="x" title="消す" onclick={() => deleteMark(m.id)} disabled={!editable}>×</button>
+                    <button class="x" title={t('消す')} onclick={() => deleteMark(m.id)} disabled={!editable}>×</button>
                   </li>
                 {/each}
               </ul>
-              <button class="danger" onclick={clearMarks} disabled={!editable}>すべて消す</button>
+              <button class="danger" onclick={clearMarks} disabled={!editable}>{t('すべて消す')}</button>
             {:else}
-              <p class="small muted">ページの上をドラッグして範囲を描くか、文字列で探してマークします。</p>
+              <p class="small muted">{t('ページの上をドラッグして範囲を描くか、文字列で探してマークします。')}</p>
             {/if}
           </section>
         {:else if result}
           <section>
-            <h2>適用の結果</h2>
+            <h2>{t('適用の結果')}</h2>
             <p class:ok={result.report.ok} class:bad={!result.report.ok} class="summary" data-testid="check-summary">{checkSummary}</p>
-            <p class="small">削除した注釈 {result.removedAnnots} 件・取り除いた ActualText などの属性 {result.removedActualText} 件{#if choice.rasterPages.length}・画像化したページ {choice.rasterPages.map((p) => p + 1).join('・')}{/if}{#if choice.lineArtTouchedPages.length}・線も削除したページ {choice.lineArtTouchedPages.map((p) => p + 1).join('・')}{/if}</p>
-            <p class="small" data-testid="removed-doc-items">{result.removedDocItems.length ? `消した文書の項目: ${result.removedDocItems.join('・')}` : stripDocument ? '消した文書の項目: なし（もともとありません）' : '文書の情報・しおり・添付・スクリプトは残しています'}</p>
-            {#if result.encrypted}<p class="small">出力は元と同じパスワードで保護されています。</p>{/if}
+            <p class="small">{t('削除した注釈 {annots} 件・取り除いた ActualText などの属性 {attrs} 件', { annots: result.removedAnnots, attrs: result.removedActualText })}{#if choice.rasterPages.length}{t('・画像化したページ {list}', { list: choice.rasterPages.map((p) => p + 1).join(t('・')) })}{/if}{#if choice.lineArtTouchedPages.length}{t('・線も削除したページ {list}', { list: choice.lineArtTouchedPages.map((p) => p + 1).join(t('・')) })}{/if}</p>
+            <p class="small" data-testid="removed-doc-items">{result.removedDocItems.length ? t('消した文書の項目: {items}', { items: result.removedDocItems.map((x) => t(x)).join(t('・')) }) : stripDocument ? t('消した文書の項目: なし（もともとありません）') : t('文書の情報・しおり・添付・スクリプトは残しています')}</p>
+            {#if result.encrypted}<p class="small">{t('出力は元と同じパスワードで保護されています。')}</p>{/if}
             <table class="checks">
-              <thead><tr><th>範囲</th><th title="画素（覆いだけが見え、下に内容が残らない）">①</th><th title="範囲内の文字">②</th><th title="ActualText・Alt・E">③</th><th title="交差する注釈">④</th></tr></thead>
+              <thead><tr><th>{t('範囲')}</th><th title={t('画素（覆いだけが見え、下に内容が残らない）')}>①</th><th title={t('範囲内の文字')}>②</th><th title={t('ActualText・Alt・E')}>③</th><th title={t('交差する注釈')}>④</th></tr></thead>
               <tbody>
                 {#each result.report.marks as c (c.markId)}
                   <tr data-testid="check-row" data-ok={c.ok} data-page={c.page}>
-                    <td>{markIndex.get(c.markId) ?? '?'}（{c.page + 1}p）</td>
-                    <td class:bad={!c.pixels} title={c.pixelsDetail}>{c.pixels ? '合格' : '不合格'}</td>
-                    <td class:bad={c.chars > 0}>{c.chars === 0 ? '0 字' : `${c.chars} 字`}</td>
-                    <td class:bad={c.actualText > 0}>{c.actualText === 0 ? 'なし' : `${c.actualText} 件`}</td>
-                    <td class:bad={c.annots > 0}>{c.annots === 0 ? 'なし' : `${c.annots} 件`}</td>
+                    <td>{t('{i}（{p}p）', { i: markIndex.get(c.markId) ?? '?', p: c.page + 1 })}</td>
+                    <td class:bad={!c.pixels} title={pixelsText(c.pixelsDetail)}>{c.pixels ? t('合格') : t('不合格')}</td>
+                    <td class:bad={c.chars > 0}>{t('{n} 字', { n: c.chars })}</td>
+                    <td class:bad={c.actualText > 0}>{c.actualText === 0 ? t('なし') : t('{n} 件', { n: c.actualText })}</td>
+                    <td class:bad={c.annots > 0}>{c.annots === 0 ? t('なし') : t('{n} 件', { n: c.annots })}</td>
                   </tr>
-                  {#if !c.pixels}<tr class="detail"><td colspan="5">① {c.pixelsDetail}</td></tr>{/if}
+                  {#if !c.pixels}<tr class="detail"><td colspan="5">① {pixelsText(c.pixelsDetail)}</td></tr>{/if}
                 {/each}
               </tbody>
             </table>
             {#if !result.report.ok}
-              <p class="small bad">不合格の範囲があるため、保存・戻しはできません。{#if !choiceDialog}<button class="link" onclick={() => runApply()}>もう一度適用する</button>{/if}</p>
+              <p class="small bad">{t('不合格の範囲があるため、保存・戻しはできません。')}{#if !choiceDialog}<button class="link" onclick={() => runApply()}>{t('もう一度適用する')}</button>{/if}</p>
             {/if}
-            {#if returnState === 'sending'}<p class="small" data-testid="return-status">編集アプリへ戻しています…</p>{/if}
-            {#if returnState === 'done'}<p class="small ok" data-testid="return-status">編集アプリに戻しました。このタブは閉じてかまいません。</p>{/if}
+            {#if returnState === 'sending'}<p class="small" data-testid="return-status">{t('編集アプリへ戻しています…')}</p>{/if}
+            {#if returnState === 'done'}<p class="small ok" data-testid="return-status">{t('編集アプリに戻しました。このタブは閉じてかまいません。')}</p>{/if}
             {#if returnState === 'closed'}
-              <p class="small bad" data-testid="return-status">編集アプリから応答がありません（閉じられた可能性があります）。「保存」でダウンロードしてください。</p>
+              <p class="small bad" data-testid="return-status">{t('編集アプリから応答がありません（閉じられた可能性があります）。「保存」でダウンロードしてください。')}</p>
             {/if}
           </section>
         {/if}
@@ -620,11 +641,11 @@
     {:else}
       <div class="empty">
         {#if phase === 'opening'}
-          <p>読み込んでいます…</p>
+          <p>{t('読み込んでいます…')}</p>
         {:else}
-          <p>墨消しする PDF を開いてください（ここへドロップもできます）。</p>
-          <button class="primary" onclick={() => fileInput?.click()}>PDF を開く</button>
-          <p class="small muted">文字データを残したまま、指定した範囲の文字・画像・線・注釈・ActualText を消し、消えたことを確かめてから保存します。<br />ファイルはこの端末の中だけで処理し、外部へは送りません。</p>
+          <p>{t('墨消しする PDF を開いてください（ここへドロップもできます）。')}</p>
+          <button class="primary" onclick={() => fileInput?.click()}>{t('PDF を開く')}</button>
+          <p class="small muted">{t('文字データを残したまま、指定した範囲の文字・画像・線・注釈・ActualText を消し、消えたことを確かめてから保存します。')}<br />{t('ファイルはこの端末の中だけで処理し、外部へは送りません。')}</p>
         {/if}
       </div>
     {/if}
@@ -632,29 +653,29 @@
 
   <footer>
     {#if SOURCE_URL}
-      <a href={SOURCE_URL} target="_blank" rel="noopener noreferrer" data-testid="source-link">ソースコード</a>
+      <a href={SOURCE_URL} target="_blank" rel="noopener noreferrer" data-testid="source-link">{t('ソースコード')}</a>
     {:else}
-      <span data-testid="source-link">ソースコード: 準備中</span>
+      <span data-testid="source-link">{t('ソースコード: 準備中')}</span>
     {/if}
-    <span data-testid="license">ライセンス: <a href="LICENSE.txt" target="_blank">{LICENSE_NAME}</a></span>
-    <a href="licenses.txt" target="_blank" data-testid="third-party">第三者のライセンス</a>
-    <span class="muted">MuPDF（Artifex Software, AGPL-3.0）を使用</span>
+    <span data-testid="license">{t('ライセンス:')} <a href="LICENSE.txt" target="_blank">{LICENSE_NAME}</a></span>
+    <a href="licenses.txt" target="_blank" data-testid="third-party">{t('第三者のライセンス')}</a>
+    <span class="muted">{t('MuPDF（Artifex Software, AGPL-3.0）を使用')}</span>
     <span class="spacer"></span>
-    <span class="muted" data-testid="isolation">クロスオリジン分離: {isolated ? '有効' : '無効'}</span>
+    <span class="muted" data-testid="isolation">{t('クロスオリジン分離: {state}', { state: isolated ? t('有効') : t('無効') })}</span>
   </footer>
 </div>
 
 {#if phase === 'password'}
   <div class="dialog-backdrop">
     <form class="dialog" onsubmit={submitPassword} data-testid="password-dialog">
-      <h2>パスワード</h2>
-      <p class="small">この PDF はパスワードで保護されています。パスワードは保存しません。</p>
+      <h2>{t('パスワード')}</h2>
+      <p class="small">{t('この PDF はパスワードで保護されています。パスワードは保存しません。')}</p>
       <!-- svelte-ignore a11y_autofocus -->
       <input type="password" bind:value={passwordInput} autocomplete="off" autofocus data-testid="password-input" />
-      {#if passwordError}<p class="small bad" data-testid="password-error">{passwordError}</p>{/if}
+      {#if passwordError}<p class="small bad" data-testid="password-error">{passwordError()}</p>{/if}
       <div class="actions">
-        <button type="button" onclick={cancelPassword}>やめる</button>
-        <button type="submit" class="primary" data-testid="password-submit">開く</button>
+        <button type="button" onclick={cancelPassword}>{t('やめる')}</button>
+        <button type="submit" class="primary" data-testid="password-submit">{t('開く')}</button>
       </div>
     </form>
   </div>
@@ -663,21 +684,21 @@
 {#if confirmOpen}
   <div class="dialog-backdrop">
     <div class="dialog" data-testid="apply-confirm">
-      <h2>墨消しを適用しますか</h2>
-      <p data-testid="apply-count">{marks.length} 件の範囲（{markPages} ページ。塗りつぶし {counts.fill} 件・ぼかし {counts.blur} 件）</p>
+      <h2>{t('墨消しを適用しますか')}</h2>
+      <p data-testid="apply-count">{t('{n} 件の範囲（{pages} ページ。塗りつぶし {fill} 件・ぼかし {blur} 件）', { n: marks.length, pages: markPages, fill: counts.fill, blur: counts.blur })}</p>
       <ul class="small">
-        <li>範囲の文字・画像の画素・覆われた線を消し、範囲と交差する注釈（付箋など）を削除します</li>
-        <li>墨消ししたページの ActualText・Alt・E を取り除きます</li>
-        <li>保存した PDF を開き直して、消えたことを確かめます</li>
+        <li>{t('範囲の文字・画像の画素・覆われた線を消し、範囲と交差する注釈（付箋など）を削除します')}</li>
+        <li>{t('墨消ししたページの ActualText・Alt・E を取り除きます')}</li>
+        <li>{t('保存した PDF を開き直して、消えたことを確かめます')}</li>
       </ul>
       <label class="check">
         <input type="checkbox" bind:checked={stripDocument} data-testid="strip-document" />
-        文書の情報・しおり・添付・スクリプトも消す（推奨）
+        {t('文書の情報・しおり・添付・スクリプトも消す（推奨）')}
       </label>
-      <p class="small muted">文書の情報（題名・作成者など）・XMP・しおり・添付ファイル・JavaScript・ページラベルは、範囲の内容の写しを持つことがあります。元のファイルは変わりません。</p>
+      <p class="small muted">{t('文書の情報（題名・作成者など）・XMP・しおり・添付ファイル・JavaScript・ページラベルは、範囲の内容の写しを持つことがあります。元のファイルは変わりません。')}</p>
       <div class="actions">
-        <button onclick={() => (confirmOpen = false)}>やめる</button>
-        <button class="primary" data-testid="apply-confirm-ok" onclick={() => runApply()}>適用する</button>
+        <button onclick={() => (confirmOpen = false)}>{t('やめる')}</button>
+        <button class="primary" data-testid="apply-confirm-ok" onclick={() => runApply()}>{t('適用する')}</button>
       </div>
     </div>
   </div>
@@ -686,27 +707,27 @@
 {#if choiceDialog}
   <div class="dialog-backdrop">
     <div class="dialog" data-testid="choice-dialog">
-      <h2>事後検査に合格しないページがあります</h2>
+      <h2>{t('事後検査に合格しないページがあります')}</h2>
       {#if choiceDialog.pixelPages.length}
-        <p class="small">範囲の下に、一部だけ覆われた線や図形が残っています。ページごとに対処を選んでください。</p>
+        <p class="small">{t('範囲の下に、一部だけ覆われた線や図形が残っています。ページごとに対処を選んでください。')}</p>
       {/if}
       {#if choiceDialog.otherPages.length}
-        <p class="small">文字・ActualText・注釈が残っているページは、画像化で対処します。</p>
+        <p class="small">{t('文字・ActualText・注釈が残っているページは、画像化で対処します。')}</p>
       {/if}
       <ul class="choices">
         {#each [...choiceDialog.pixelPages, ...choiceDialog.otherPages] as p (p)}
           <li>
-            <strong>{p + 1} ページ</strong>
-            <label><input type="radio" name="c{p}" checked={choiceDialog.selection[p] === 'raster'} onchange={() => (choiceDialog!.selection[p] = 'raster')} data-testid="choice-raster-{p}" /> ページを画像化（既定。このページの文字は画像になります）</label>
+            <strong>{t('{n} ページ', { n: p + 1 })}</strong>
+            <label><input type="radio" name="c{p}" checked={choiceDialog.selection[p] === 'raster'} onchange={() => (choiceDialog!.selection[p] = 'raster')} data-testid="choice-raster-{p}" /> {t('ページを画像化（既定。このページの文字は画像になります）')}</label>
             {#if choiceDialog.pixelPages.includes(p)}
-              <label><input type="radio" name="c{p}" checked={choiceDialog.selection[p] === 'touched'} onchange={() => (choiceDialog!.selection[p] = 'touched')} data-testid="choice-touched-{p}" /> 範囲に触れる線も削除して適用し直す（範囲の外の部分も消えます）</label>
+              <label><input type="radio" name="c{p}" checked={choiceDialog.selection[p] === 'touched'} onchange={() => (choiceDialog!.selection[p] = 'touched')} data-testid="choice-touched-{p}" /> {t('範囲に触れる線も削除して適用し直す（範囲の外の部分も消えます）')}</label>
             {/if}
           </li>
         {/each}
       </ul>
       <div class="actions">
-        <button onclick={() => (choiceDialog = null)}>閉じる</button>
-        <button class="primary" data-testid="choice-submit" onclick={applyChoice}>選んだ方法で適用し直す</button>
+        <button onclick={() => (choiceDialog = null)}>{t('閉じる')}</button>
+        <button class="primary" data-testid="choice-submit" onclick={applyChoice}>{t('選んだ方法で適用し直す')}</button>
       </div>
     </div>
   </div>
@@ -715,7 +736,7 @@
 {#if phase === 'applying'}
   <div class="dialog-backdrop">
     <div class="dialog" data-testid="applying">
-      <p>墨消しを適用し、事後検査をしています…</p>
+      <p>{t('墨消しを適用し、事後検査をしています…')}</p>
     </div>
   </div>
 {/if}

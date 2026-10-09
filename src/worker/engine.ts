@@ -4,6 +4,7 @@ import * as mupdf from 'mupdf';
 import type { ApplyResult, LoadResult, OpenResult, RenderResult, Request, SearchResponse } from '../lib/protocol';
 import type { ApplyChoice, ApplyOptions, DocInfo, Mark } from '../lib/types';
 import { readRedactAnnots, removeRedactAnnotsForView } from './annots';
+import { tk } from '../lib/msg';
 import { checkOutput, openBytes } from './checks';
 import { redactDocument } from './redact';
 import { searchDoc } from './search';
@@ -78,16 +79,16 @@ function docInfo(doc: mupdf.Document): DocInfo {
 }
 
 function viewDoc(): mupdf.Document {
-  if (!state) throw new Error('文書が開かれていません');
+  if (!state) throw new Error(tk('文書が開かれていません'));
   const d = state.view === 'result' ? state.result : state.source;
-  if (!d) throw new Error('文書が開かれていません');
+  if (!d) throw new Error(tk('文書が開かれていません'));
   return d;
 }
 
 function finishOpen(doc: mupdf.Document): void {
   if (!state) return;
   const pdf = doc.asPDF();
-  if (!pdf) throw new Error('PDF ではありません');
+  if (!pdf) throw new Error(tk('PDF ではありません'));
   state.source = pdf;
   state.pending = null;
 }
@@ -120,14 +121,14 @@ export async function handle(req: Request): Promise<{ result: unknown; transfer?
       return { result: { needsPassword: false } satisfies OpenResult };
     }
     case 'auth': {
-      if (!state?.pending) throw new Error('パスワードの入力は不要です');
+      if (!state?.pending) throw new Error(tk('パスワードの入力は不要です'));
       if (state.pending.authenticatePassword(req.password) === 0) return { result: { ok: false } };
       state.password = req.password;
       finishOpen(state.pending);
       return { result: { ok: true } };
     }
     case 'load': {
-      if (!state?.source) throw new Error('文書が開かれていません');
+      if (!state?.source) throw new Error(tk('文書が開かれていません'));
       const marks = readRedactAnnots(state.source, newId);
       removeRedactAnnotsForView(state.source);
       return { result: { info: docInfo(state.source), marks } satisfies LoadResult };
@@ -139,17 +140,17 @@ export async function handle(req: Request): Promise<{ result: unknown; transfer?
       return { result: r, transfer: [r.bitmap] };
     }
     case 'search': {
-      if (!state?.source) throw new Error('文書が開かれていません');
+      if (!state?.source) throw new Error(tk('文書が開かれていません'));
       const r = searchDoc(state.source, req.needle, req.ignoreCase);
       return { result: r satisfies SearchResponse };
     }
     case 'apply': {
-      if (!state) throw new Error('文書が開かれていません');
+      if (!state) throw new Error(tk('文書が開かれていません'));
       return { ...(await apply(req.marks, req.choice, req.options)) };
     }
     case 'view': {
-      if (!state) throw new Error('文書が開かれていません');
-      if (req.target === 'result' && !state.result) throw new Error('適用した結果がありません');
+      if (!state) throw new Error(tk('文書が開かれていません'));
+      if (req.target === 'result' && !state.result) throw new Error(tk('適用した結果がありません'));
       state.view = req.target;
       return { result: docInfo(viewDoc()) };
     }
@@ -161,12 +162,12 @@ export async function handle(req: Request): Promise<{ result: unknown; transfer?
 }
 
 async function apply(marks: Mark[], choice: ApplyChoice, options: ApplyOptions): Promise<{ result: ApplyResult; transfer: Transferable[] }> {
-  if (!state) throw new Error('文書が開かれていません');
+  if (!state) throw new Error(tk('文書が開かれていません'));
   // 元の文書を開き直した写しに適用する（表示中の文書は変えない）
   const fresh = openBlob(state.file);
-  if (fresh.needsPassword() && fresh.authenticatePassword(state.password ?? '') === 0) throw new Error('パスワードで開けません');
+  if (fresh.needsPassword() && fresh.authenticatePassword(state.password ?? '') === 0) throw new Error(tk('パスワードで開けません'));
   const pdf = fresh.asPDF();
-  if (!pdf) throw new Error('PDF ではありません');
+  if (!pdf) throw new Error(tk('PDF ではありません'));
   const token = newId();
   const out = redactDocument(pdf, marks, choice, token, options);
   const report = checkOutput(out.bytes, state.password, marks, token);

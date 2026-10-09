@@ -54,7 +54,7 @@ redactor → 本体（戻し）
   7. redactor: 2 秒以内に 'returned' が来なければ、本体が閉じているとみなし、ダウンロードを案内する
 ```
 
-- `payload` の `name` は元のファイル名（例: `contract.pdf`）。`return` の `name` は `<元の名前>_墨消し.pdf`（例: `contract_墨消し.pdf`。元の名前の末尾の `.pdf` は除く）
+- `payload` の `name` は元のファイル名（例: `contract.pdf`）。`return` の `name` は `<元の名前>_墨消し.pdf`（例: `contract_墨消し.pdf`。元の名前の末尾の `.pdf` は除く）。英語の画面では `<元の名前>_redacted.pdf`（保存するときの名前も同じ）。本体は名前を読み取らずに使う
 
 ### 墨消しの候補の /Redact 注釈の形（本体が書き、redactor が読む）
 

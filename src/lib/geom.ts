@@ -1,4 +1,5 @@
 // 矩形・四角形・行列の小さな計算（画面とワーカーの両方で使う）
+import { tk } from './msg';
 import type { Quad, Rect } from './types';
 
 export type Mat = [number, number, number, number, number, number];
@@ -40,7 +41,7 @@ export function transformPoint(m: Mat, x: number, y: number): [number, number] {
 
 export function invertMatrix(m: Mat): Mat {
   const det = m[0] * m[3] - m[1] * m[2];
-  if (Math.abs(det) < 1e-12) throw new Error('逆行列がありません');
+  if (Math.abs(det) < 1e-12) throw new Error(tk('逆行列がありません'));
   const a = m[3] / det;
   const b = -m[1] / det;
   const c = -m[2] / det;

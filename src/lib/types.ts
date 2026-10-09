@@ -1,6 +1,8 @@
 // 画面とワーカーで共有する型。座標はすべて MuPDF の「ページ空間」
 // （/Rotate と CropBox を反映した、左上が原点・下向きが +y・単位 pt の空間）で表す
 
+import type { Msg } from './msg';
+
 export type Rect = [number, number, number, number]; // x0, y0, x1, y1
 export type Quad = [number, number, number, number, number, number, number, number];
 export type RGB = [number, number, number]; // 各 0〜1
@@ -34,7 +36,8 @@ export interface MarkCheck {
   page: number;
   // ① 画素: 覆いだけが見え、覆いの下に元の内容が残っていない
   pixels: boolean;
-  pixelsDetail: string;
+  // ①の説明（鍵は日本語の文言。画面の側で t() を通して今の言語の文にする）
+  pixelsDetail: Msg[];
   // ② 範囲内の文字（空白を除く）の数
   chars: number;
   // ③ そのページに残る ActualText・Alt・E の数（内容ストリーム・Form XObject・構造ツリー）
@@ -74,7 +77,7 @@ export interface ApplyResult {
   removedAnnots: number;
   // 取り除いた ActualText・Alt・E の数
   removedActualText: number;
-  // 消した文書の項目
+  // 消した文書の項目（名前は日本語の文言。画面の側で t() を通して今の言語にする）
   removedDocItems: string[];
   // 出力が暗号化されているか（元のパスワードのまま）
   encrypted: boolean;

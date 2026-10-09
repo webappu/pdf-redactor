@@ -2,6 +2,7 @@
 // 対象: 文書の情報（Info）・XMP メタデータ・しおり・添付ファイル（名前の木・注釈・関連づけ）・JavaScript（名前の木・
 // 開いたときの動作・追加の動作・注釈の動作）・ページラベル・作成アプリの私的なデータ（/PieceInfo）
 import type * as mupdf from 'mupdf';
+import { tk } from '../lib/msg';
 
 type PDFObject = mupdf.PDFObject;
 
@@ -21,16 +22,16 @@ export function stripDocumentItems(doc: mupdf.PDFDocument): string[] {
 
   if (!trailer.get('Info').isNull()) {
     trailer.delete('Info');
-    removed.push('文書の情報（Info）');
+    removed.push(tk('文書の情報（Info）'));
   }
   if (!root.get('Metadata').isNull()) {
     root.delete('Metadata');
-    removed.push('XMP メタデータ');
+    removed.push(tk('XMP メタデータ'));
   }
   if (!root.get('Outlines').isNull()) {
     root.delete('Outlines');
     if (nameOf(root.get('PageMode')) === 'UseOutlines') root.delete('PageMode');
-    removed.push('しおり');
+    removed.push(tk('しおり'));
   }
 
   // 添付ファイル
@@ -97,16 +98,16 @@ export function stripDocumentItems(doc: mupdf.PDFDocument): string[] {
       }
     }
   }
-  if (attachments) removed.push('添付ファイル');
-  if (scripts) removed.push('JavaScript');
+  if (attachments) removed.push(tk('添付ファイル'));
+  if (scripts) removed.push(tk('JavaScript'));
 
   if (!root.get('PageLabels').isNull()) {
     root.delete('PageLabels');
-    removed.push('ページラベル');
+    removed.push(tk('ページラベル'));
   }
   if (!root.get('PieceInfo').isNull()) {
     root.delete('PieceInfo');
-    removed.push('作成アプリの私的なデータ');
+    removed.push(tk('作成アプリの私的なデータ'));
   }
   return removed;
 }

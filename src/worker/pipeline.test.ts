@@ -191,7 +191,7 @@ describe('墨消しの適用と事後検査（漏洩の試料）', () => {
     const ra = checkOutput(a.bytes, undefined, marksFor(a), 'none');
     expect(ra.ok).toBe(false);
     expect(ra.marks[0].pixels).toBe(false);
-    expect(ra.marks[0].pixelsDetail).toBe('覆いが見つかりません');
+    expect(ra.marks[0].pixelsDetail).toEqual([{ key: '覆いが見つかりません' }]);
     expect(ra.marks[0].chars).toBeGreaterThan(0);
     expect(ra.marks[0].actualText).toBeGreaterThanOrEqual(5);
     const b = get('redactor-b-note.pdf');
@@ -200,7 +200,7 @@ describe('墨消しの適用と事後検査（漏洩の試料）', () => {
     // 覆いはあるが、その下に線が残る（(c) の 1 回目）: 覆いの外れ・違いはなく、下の内容だけが見つかる
     const c = get('redactor-c-line.pdf');
     const first = run(c, marksFor(c));
-    expect(first.report.marks[0].pixelsDetail).toMatch(/^覆いの下に内容が残っている/);
+    expect(first.report.marks[0].pixelsDetail.map((m) => m.key)).toEqual(['覆いの下に内容が残っている（濃淡の幅 {n}）']);
   });
 
   it('(g) パスワード付き: 出力もパスワードのまま、検査に合格する', () => {

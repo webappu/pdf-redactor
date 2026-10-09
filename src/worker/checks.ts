@@ -9,6 +9,7 @@
 //   ④ 範囲と交差する注釈が 0（/Annots を直接調べる）
 import * as mupdf from 'mupdf';
 import { pointInRect, quadCenter, rectsIntersect, type Mat } from '../lib/geom';
+import { msg, tk, type Msg } from '../lib/msg';
 import type { CheckReport, Mark, MarkCheck, Rect } from '../lib/types';
 import { COVER_KEY, coverToken, rawAnnotRect, renderContents } from './redact';
 import { scrubPage, scrubStructTree } from './scrub';
@@ -19,10 +20,10 @@ const TOLERANCE = 4;
 export function openBytes(bytes: Uint8Array, password?: string): mupdf.PDFDocument {
   const doc = mupdf.Document.openDocument(bytes, 'application/pdf');
   if (doc.needsPassword()) {
-    if (!password || doc.authenticatePassword(password) === 0) throw new Error('出力を開けません（パスワード）');
+    if (!password || doc.authenticatePassword(password) === 0) throw new Error(tk('出力を開けません（パスワード）'));
   }
   const pdf = doc.asPDF();
-  if (!pdf) throw new Error('PDF ではありません');
+  if (!pdf) throw new Error(tk('PDF ではありません'));
   return pdf;
 }
 
@@ -78,14 +79,14 @@ function interior(rect: Rect, scale: number): { x0: number; y0: number; x1: numb
   };
 }
 
-function checkPixels(pageA: mupdf.PDFPage, pageB: mupdf.PDFPage | null, pageC: mupdf.PDFPage | null, rect: Rect): { ok: boolean; detail: string } {
-  if (!pageB || !pageC) return { ok: false, detail: '覆いが見つかりません' };
+function checkPixels(pageA: mupdf.PDFPage, pageB: mupdf.PDFPage | null, pageC: mupdf.PDFPage | null, rect: Rect): { ok: boolean; detail: Msg[] } {
+  if (!pageB || !pageC) return { ok: false, detail: [msg('覆いが見つかりません')] };
   const s = regionScale(rect);
   const a = render(pageA, rect, s, false);
   const b = render(pageB, rect, s, true);
   const c = render(pageC, rect, s, false);
   const box = interior(rect, s);
-  if (box.x1 <= box.x0 || box.y1 <= box.y0) return { ok: true, detail: '範囲が小さく画素の検査は省略' };
+  if (box.x1 <= box.x0 || box.y1 <= box.y0) return { ok: true, detail: [msg('範囲が小さく画素の検査は省略')] };
   let notOpaque = 0;
   let differs = 0;
   const min = [255, 255, 255];
@@ -105,11 +106,12 @@ function checkPixels(pageA: mupdf.PDFPage, pageB: mupdf.PDFPage | null, pageC: m
     }
   }
   const spread = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
-  const problems: string[] = [];
-  if (notOpaque) problems.push(`覆いの外れ ${notOpaque} 画素`);
-  if (differs) problems.push(`覆いと違う画素 ${differs}`);
-  if (spread > TOLERANCE) problems.push(`覆いの下に内容が残っている（濃淡の幅 ${spread}）`);
-  return { ok: problems.length === 0, detail: problems.join('、') || '合格' };
+  // 説明は鍵（日本語の文言）と値で返し、画面の側で今の言語の文にする（ワーカーでは訳さない）
+  const problems: Msg[] = [];
+  if (notOpaque) problems.push(msg('覆いの外れ {n} 画素', { n: notOpaque }));
+  if (differs) problems.push(msg('覆いと違う画素 {n}', { n: differs }));
+  if (spread > TOLERANCE) problems.push(msg('覆いの下に内容が残っている（濃淡の幅 {n}）', { n: spread }));
+  return { ok: problems.length === 0, detail: problems.length ? problems : [msg('合格')] };
 }
 
 function countChars(page: mupdf.PDFPage, rect: Rect): number {

@@ -5,7 +5,9 @@
 //         → payload を受けたら received を返す。failed が来たら、その知らせを出して待つのをやめる
 //   戻し: return を送り、2 秒以内に returned が来なければ本体が閉じているとみなす
 // 自分が知らない id のメッセージは無視する
-export const HANDOFF_CHANNEL = 'pdf-editor-handoff-v1';
+import { tk } from './msg';
+
+export const HANDOFF_CHANNEL ='pdf-editor-handoff-v1';
 export const READY_INTERVAL = 300;
 export const READY_TRIES = 10;
 // preparing の後に payload を待つ時間（本体は画像処理を含めて PDF を作る）
@@ -27,10 +29,11 @@ export function readHandoffId(hash: string): string | null {
   return m ? m[1] : null;
 }
 
-// 戻すときの名前: <元の名前>_墨消し.pdf（元の名前の末尾の .pdf は除く）
-export function returnName(name: string): string {
-  const base = name.replace(/\.pdf$/i, '') || '文書';
-  return `${base}_墨消し.pdf`;
+// 戻すときの名前: <元の名前>_墨消し.pdf（元の名前の末尾の .pdf は除く）。
+// 画面は今の言語の語（英語なら document・_redacted）を渡す。ここは画面の仕組み（i18n.svelte.ts）に頼らない（単体の試験で読むため）
+export function returnName(name: string, fallback = tk('文書'), suffix = tk('_墨消し')): string {
+  const base = name.replace(/\.pdf$/i, '') || fallback;
+  return `${base}${suffix}.pdf`;
 }
 
 export interface ReceiveCallbacks {
@@ -102,7 +105,7 @@ export function receiveHandoff(id: string, cb: ReceiveCallbacks, timing: Receive
       cb.onPayload(m.name, m.blob);
     } else if (m.type === 'failed') {
       finish();
-      cb.onFailed(typeof m.message === 'string' && m.message ? m.message : '編集アプリが PDF を作れませんでした');
+      cb.onFailed(typeof m.message === 'string' && m.message ? m.message : tk('編集アプリが PDF を作れませんでした'));
     }
   };
   readyTimer = setInterval(sendReady, readyInterval);

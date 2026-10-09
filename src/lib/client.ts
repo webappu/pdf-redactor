@@ -1,4 +1,5 @@
 // 画面側からワーカーを呼ぶ（要求ごとに id をつけ、返事を待つ）
+import { t } from '../i18n.svelte';
 import type { ApplyResult, LoadResult, OpenResult, RenderResult, Reply, Request, SearchResponse } from './protocol';
 import type { ApplyChoice, ApplyOptions, DocInfo, Mark } from './types';
 
@@ -18,7 +19,7 @@ export class PdfWorker {
       else p.reject(new Error(r.error));
     };
     this.worker.onerror = (ev) => {
-      const err = new Error(`ワーカーで失敗しました: ${ev.message || '不明'}`);
+      const err = new Error(t('ワーカーで失敗しました: {m}', { m: ev.message || t('不明') }));
       for (const p of this.pending.values()) p.reject(err);
       this.pending.clear();
     };
